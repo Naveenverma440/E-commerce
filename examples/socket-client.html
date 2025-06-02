@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Commerce Socket.IO Client</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .header {
+            background: #007bff;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .success { background-color: #d4edda; color: #155724; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        
+        input, select, textarea, button {
+            padding: 8px 12px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .events-log {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .event-item {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            background: white;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 11px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛒 E-Commerce Socket.IO Client</h1>
+        <p>Real-time testing interface for E-Commerce API</p>
+    </div>
+
+    <div class="container">
+        <h2>Connection</h2>
+        <div class="form-group">
+            <label for="serverUrl">Server URL:</label>
+            <input type="text" id="serverUrl" value="http://localhost:3000" style="width: 300px;">
+        </div>
+        <div class="form-group">
+            <label for="authToken">JWT Token:</label>
+            <input type="text" id="authToken" placeholder="Enter your JWT token" style="width: 400px;">
+        </div>
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+        <div id="connectionStatus" class="status disconnected">Disconnected</div>
+    </div>
+
+    <div class="grid">
+        <div class="container">
+            <h2>Customer Actions</h2>
+            <div class="form-group">
+                <button id="joinUserRoom">Join User Room</button>
+                <button id="updateCart">Update Cart</button>
+            </div>
+            <div class="form-group">
+                <label>Cart Items:</label>
+                <input type="number" id="cartItems" value="3" min="0">
+                <button id="sendCartUpdate">Send Cart Update</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>Admin Actions</h2>
+            <div class="form-group">
+                <button id="joinAdminRoom">Join Admin Room</button>
+                <button id="requestDashboard">Request Dashboard Update</button>
+            </div>
+            <div class="form-group">
+                <label for="orderId">Order ID:</label>
+                <input type="text" id="orderId" placeholder="Enter order UUID">
+            </div>
+            <div class="form-group">
+                <label for="orderStatus">New Status:</label>
+                <select id="orderStatus">
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="processing">Processing</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="statusNotes">Notes:</label>
+                <textarea id="statusNotes" placeholder="Optional notes" rows="2" style="width: 100%;"></textarea>
+            </div>
+            <button id="updateOrderStatus">Update Order Status</button>
+            
+            <div class="form-group">
+                <label for="productId">Product ID:</label>
+                <input type="text" id="productId" placeholder="Enter product UUID">
+            </div>
+            <div class="form-group">
+                <label for="stockQuantity">Stock Quantity:</label>
+                <input type="number" id="stockQuantity" value="100" min="0">
+            </div>
+            <button id="updateInventory">Update Inventory</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Events Log</h2>
+        <button id="clearLog">Clear Log</button>
+        <div id="eventsLog" class="events-log"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let isConnected = false;
+
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const eventsLog = document.getElementById('eventsLog');
+        const serverUrl = document.getElementById('serverUrl');
+        const authToken = document.getElementById('authToken');
+
+        // Utility functions
+        function logEvent(type, message, data = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'event-item';
+            
+            let content = `<span class="timestamp">[${timestamp}]</span> <strong>${type}:</strong> ${message}`;
+            if (data) {
+                content += `<br><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+            
+            eventDiv.innerHTML = content;
+            eventsLog.appendChild(eventDiv);
+            eventsLog.scrollTop = eventsLog.scrollHeight;
+        }
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            
+            if (connected) {
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.className = 'status connected';
+            } else {
+                connectionStatus.textContent = 'Disconnected';
+                connectionStatus.className = 'status disconnected';
+            }
+        }
+
+        // Connection handlers
+        connectBtn.addEventListener('click', () => {
+            const url = serverUrl.value;
+            const token = authToken.value;
+
+            if (!token) {
+                alert('Please enter a JWT token');
+                return;
+            }
+
+            socket = io(url, {
+                auth: {
+                    token: token
+                }
+            });
+
+            // Socket event listeners
+            socket.on('connect', () => {
+                updateConnectionStatus(true);
+                logEvent('CONNECT', 'Connected to server');
+            });
+
+            socket.on('disconnect', (reason) => {
+                updateConnectionStatus(false);
+                logEvent('DISCONNECT', `Disconnected: ${reason}`);
+            });
+
+            socket.on('connect_error', (error) => {
+                logEvent('ERROR', 'Connection error', error.message);
+            });
+
+            socket.on('connected', (data) => {
+                logEvent('CONNECTED', 'Welcome message received', data);
+            });
+
+            socket.on('joined_room', (data) => {
+                logEvent('ROOM', 'Joined room', data);
+            });
+
+            socket.on('left_room', (data) => {
+                logEvent('ROOM', 'Left room', data);
+            });
+
+            socket.on('error', (data) => {
+                logEvent('ERROR', 'Server error', data);
+            });
+
+            // Order events
+            socket.on('new_order', (data) => {
+                logEvent('ORDER', 'New order received', data);
+            });
+
+            socket.on('order_status_updated', (data) => {
+                logEvent('ORDER', 'Order status updated', data);
+            });
+
+            socket.on('order_status_changed', (data) => {
+                logEvent('ORDER', 'Order status changed (admin view)', data);
+            });
+
+            socket.on('status_update_success', (data) => {
+                logEvent('SUCCESS', 'Order status update successful', data);
+            });
+
+            // Inventory events
+            socket.on('inventory_updated', (data) => {
+                logEvent('INVENTORY', 'Inventory updated', data);
+            });
+
+            socket.on('inventory_update_success', (data) => {
+                logEvent('SUCCESS', 'Inventory update successful', data);
+            });
+
+            // Dashboard events
+            socket.on('dashboard_update', (data) => {
+                logEvent('DASHBOARD', 'Dashboard update received', data);
+            });
+
+            // Cart events
+            socket.on('cart_sync', (data) => {
+                logEvent('CART', 'Cart synchronized', data);
+            });
+
+            // Typing events
+            socket.on('user_typing', (data) => {
+                logEvent('TYPING', 'User typing status', data);
+            });
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        });
+
+        // Action handlers
+        document.getElementById('joinUserRoom').addEventListener('click', () => {
+            if (socket && isConnected) {
+                socket.emit('join_room', 'user_123');
+                logEvent('ACTION', 'Joining user room');
+            }
+        });
+
+        document.getElementById('joinAdminRoom').addEventListener('click', () => {
+            if (socket && isConnected) {
+                socket.emit('join_room', 'admin_room');
+                logEvent('ACTION', 'Joining admin room');
+            }
+        });
+
+        document.getElementById('sendCartUpdate').addEventListener('click', () => {
+            if (socket && isConnected) {
+                const totalItems = parseInt(document.getElementById('cartItems').value);
+                socket.emit('cart_updated', { total_items: totalItems });
+                logEvent('ACTION', 'Cart update sent', { total_items: totalItems });
+            }
+        });
+
+        document.getElementById('updateOrderStatus').addEventListener('click', () => {
+            if (socket && isConnected) {
+                const orderId = document.getElementById('orderId').value;
+                const status = document.getElementById('orderStatus').value;
+                const notes = document.getElementById('statusNotes').value;
+
+                if (!orderId) {
+                    alert('Please enter an order ID');
+                    return;
+                }
+
+                const data = { order_id: orderId, status, notes };
+                socket.emit('update_order_status', data);
+                logEvent('ACTION', 'Order status update sent', data);
+            }
+        });
+
+        document.getElementById('updateInventory').addEventListener('click', () => {
+            if (socket && isConnected) {
+                const productId = document.getElementById('productId').value;
+                const stockQuantity = parseInt(document.getElementById('stockQuantity').value);
+
+                if (!productId) {
+                    alert('Please enter a product ID');
+                    return;
+                }
+
+                const data = { product_id: productId, stock_quantity: stockQuantity };
+                socket.emit('update_inventory', data);
+                logEvent('ACTION', 'Inventory update sent', data);
+            }
+        });
+
+        document.getElementById('requestDashboard').addEventListener('click', () => {
+            if (socket && isConnected) {
+                socket.emit('request_dashboard_update');
+                logEvent('ACTION', 'Dashboard update requested');
+            }
+        });
+
+        document.getElementById('clearLog').addEventListener('click', () => {
+            eventsLog.innerHTML = '';
+        });
+
+        // Initial log message
+        logEvent('INFO', 'Socket.IO client ready. Enter your JWT token and click Connect.');
+    </script>
+</body>
+</html>
